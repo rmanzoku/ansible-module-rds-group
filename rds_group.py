@@ -14,7 +14,7 @@ except ImportError:
     HAS_BOTO3 = False
 
 try:
-    from botocore.exceptions import ClientError
+    from botocore.exceptions import ClientError, NoCredentialsError
     HAS_BOTOCORE = True
 except ImportError:
     HAS_BOTOCORE = False
@@ -29,18 +29,39 @@ def sg(module, conn, params):
         result = conn.describe_db_security_groups(DBSecurityGroupName=params.get("name"))
 
         if params.get("state") == "present":
-            for r in result['DBSecurityGroups'][0]['IPRanges']:
-                print(r)
-            # 差分チェック
-            diff = False
-
-            # 処理
-            if diff is True:
-                return True
+            if len(result['DBSecurityGroups'][0]['IPRanges']) == 0:
+                present_ipranges = [i['CIDRIP'] for i in result['DBSecurityGroups'][0]['IPRanges']
+                                    if i['Status'] == "authorized"]
             else:
+                present_ipranges = []
+
+            desire_ipranges = params.get('ip_ranges')
+            authorize_ipranges = list(set(desire_ipranges) - set(present_ipranges))
+            revoke_ipranges = list(set(present_ipranges) - set(desire_ipranges))
+
+            # No diffence
+            if (len(authorize_ipranges) == 0) and (len(revoke_ipranges) == 0):
                 return False
+
+            # Adjust diffence
+            if len(authorize_ipranges) != 0:
+                for i in authorize_ipranges:
+                    conn.authorize_db_security_group_ingress(
+                        DBSecurityGroupName=params.get("name"),
+                        CIDRIP=i
+                    )
+
+            if len(revoke_ipranges) != 0:
+                for i in revoke_ipranges:
+                    conn.revoke_db_security_group_ingress(
+                        DBSecurityGroupName=params.get("name"),
+                        CIDRIP=i
+                    )
+
+            return True
+
         else:
-            # conn.delete_db_security_group(DBSecurityGroupName=params.get("name"))
+            conn.delete_db_security_group(DBSecurityGroupName=params.get("name"))
             return True
 
     except ClientError as ex:
@@ -49,13 +70,19 @@ def sg(module, conn, params):
 
         # ない
         if params.get("state") == "present":
-            # conn.create_db_security_group(DBSecurityGroupName=params.get("name"),
-            #                               DBSecurityGroupDescription=params.get("description"))
+            conn.create_db_security_group(DBSecurityGroupName=params.get("name"),
+                                          DBSecurityGroupDescription=params.get("description"))
+
+            for i in params.get('ip_ranges', []):
+                conn.authorize_db_security_group_ingress(
+                    DBSecurityGroupName=params.get("name"),
+                    CIDRIP=i
+                )
+
             return True
         else:
             # なにもしない
             return False
-
 
 
 def main():
@@ -64,8 +91,8 @@ def main():
         dict(
             name=dict(type='str', required=True),
             description=dict(type='str', required=True),
-            ip_ranges=dict(type='list'),
-            ec2_security_groups=dict(type='list'),
+            ip_ranges=dict(type='list', default=[]),
+            ec2_security_groups=dict(type='list', default=[]),
             state=dict(default='present', type='str', choices=['present', 'absent']),
             # purge_rules=dict(default=True, required=False, type='bool'),
             # purge_rules_egress=dict(default=True, required=False, type='bool')
@@ -84,7 +111,7 @@ def main():
         conn = boto3_conn(module, conn_type="client", resource="rds", region=region,
                           **aws_connect_kwargs)
 
-    except botocore.exceptions.NoCredentialsError as e:
+    except NoCredentialsError as e:
         module.fail_json(msg=e.message)
 
     changed = sg(module, conn, module.params)
