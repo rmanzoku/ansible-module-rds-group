@@ -23,6 +23,69 @@ from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.ec2 import ec2_argument_spec, boto3_conn, get_aws_connection_info
 
 
+def ec2groups_ingress(conn, name, present_ec2groups, desire_ec2groups):
+    # authorize_ec2groups = []
+
+    # for d in desire_ec2groups:
+    #     for p in present_ec2groups:
+    #         if d == p:
+    #             desire_ec2groups.
+    #             break
+
+    # authorize_ec2groups = list(set(desire_ec2groups) - set(present_ec2groups))
+    # revoke_ec2groups = list(set(present_ec2groups) - set(desire_ec2groups))
+
+    # No diffence
+    if (len(authorize_ec2groups) == 0) and (len(revoke_ec2groups) == 0):
+        return False
+
+    # Adjust diffence
+    if len(authorize_ec2groups) != 0:
+        for i in authorize_ec2groups:
+            print(i)
+            # conn.authorize_db_security_group_ingress(
+            #     DBSecurityGroupName=name,
+            #     CIDRIP=i
+            # )
+
+    if len(revoke_ec2groups) != 0:
+        for i in revoke_ec2groups:
+            print(i)
+            # conn.revoke_db_security_group_ingress(
+            #     DBSecurityGroupName=name,
+            #     CIDRIP=i
+            # )
+
+    return True
+
+
+def ipranges_ingress(conn, name, present_ipranges, desire_ipranges):
+    return False
+    authorize_ipranges = list(set(desire_ipranges) - set(present_ipranges))
+    revoke_ipranges = list(set(present_ipranges) - set(desire_ipranges))
+
+    # No diffence
+    if (len(authorize_ipranges) == 0) and (len(revoke_ipranges) == 0):
+        return False
+
+    # Adjust diffence
+    if len(authorize_ipranges) != 0:
+        for i in authorize_ipranges:
+            conn.authorize_db_security_group_ingress(
+                DBSecurityGroupName=name,
+                CIDRIP=i
+            )
+
+    if len(revoke_ipranges) != 0:
+        for i in revoke_ipranges:
+            conn.revoke_db_security_group_ingress(
+                DBSecurityGroupName=name,
+                CIDRIP=i
+            )
+
+    return True
+
+
 def sg(module, conn, params):
 
     try:
@@ -30,58 +93,46 @@ def sg(module, conn, params):
 
         if params.get("state") == "present":
             if len(result['DBSecurityGroups'][0]['IPRanges']) == 0:
+                present_ipranges = []
+            else:
                 present_ipranges = [i['CIDRIP'] for i in result['DBSecurityGroups'][0]['IPRanges']
                                     if i['Status'] == "authorized"]
+
+            ipranges_changed = ipranges_ingress(conn, params['name'],
+                                                present_ipranges, params['ip_ranges'])
+
+            if len(result['DBSecurityGroups'][0]['EC2SecurityGroups']) == 0:
+                present_ec2groups = []
+
             else:
-                present_ipranges = []
+                present_ec2groups = [
+                    {"group_owner_id": i['EC2SecurityGroupOwnerId'],
+                     "group_name": i['EC2SecurityGroupName']}
+                    for i in result['DBSecurityGroups'][0]['EC2SecurityGroups']
+                    if i['Status'] == "authorized"]
 
-            desire_ipranges = params.get('ip_ranges')
-            authorize_ipranges = list(set(desire_ipranges) - set(present_ipranges))
-            revoke_ipranges = list(set(present_ipranges) - set(desire_ipranges))
+            ec2groups_changed = ec2groups_ingress(conn, params['name'],
+                                                  present_ec2groups, params['ec2_security_groups'])
 
-            # No diffence
-            if (len(authorize_ipranges) == 0) and (len(revoke_ipranges) == 0):
-                return False
-
-            # Adjust diffence
-            if len(authorize_ipranges) != 0:
-                for i in authorize_ipranges:
-                    conn.authorize_db_security_group_ingress(
-                        DBSecurityGroupName=params.get("name"),
-                        CIDRIP=i
-                    )
-
-            if len(revoke_ipranges) != 0:
-                for i in revoke_ipranges:
-                    conn.revoke_db_security_group_ingress(
-                        DBSecurityGroupName=params.get("name"),
-                        CIDRIP=i
-                    )
-
-            return True
+            return ipranges_changed or ec2groups_changed
 
         else:
-            conn.delete_db_security_group(DBSecurityGroupName=params.get("name"))
+            # conn.delete_db_security_group(DBSecurityGroupName=params.get("name"))
             return True
 
     except ClientError as ex:
         if ex.response['Error']['Code'] != "DBSecurityGroupNotFound":
             raise ex
 
-        # ない
+        # Create
         if params.get("state") == "present":
             conn.create_db_security_group(DBSecurityGroupName=params.get("name"),
                                           DBSecurityGroupDescription=params.get("description"))
-
-            for i in params.get('ip_ranges', []):
-                conn.authorize_db_security_group_ingress(
-                    DBSecurityGroupName=params.get("name"),
-                    CIDRIP=i
-                )
-
+            ipranges_ingress(conn,  params['name'], [], params['ip_ranges'])
             return True
+
         else:
-            # なにもしない
+            # Nothing to do
             return False
 
 
@@ -94,8 +145,6 @@ def main():
             ip_ranges=dict(type='list', default=[]),
             ec2_security_groups=dict(type='list', default=[]),
             state=dict(default='present', type='str', choices=['present', 'absent']),
-            # purge_rules=dict(default=True, required=False, type='bool'),
-            # purge_rules_egress=dict(default=True, required=False, type='bool')
         )
     )
 
