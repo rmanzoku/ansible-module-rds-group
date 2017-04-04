@@ -23,38 +23,35 @@ from ansible.module_utils.basic import AnsibleModule
 from ansible.module_utils.ec2 import ec2_argument_spec, boto3_conn, get_aws_connection_info
 
 
-def ec2groups_ingress(conn, name, present_ec2groups, desire_ec2groups):
-    # authorize_ec2groups = []
+def ec2groups_ingress(module, conn, name, present_ec2groups, desire_ec2groups):
+    authorize_ec2groups = [i for i in desire_ec2groups if i not in present_ec2groups]
+    revoke_ec2groups = [i for i in present_ec2groups if i not in desire_ec2groups]
 
-    # for d in desire_ec2groups:
-    #     for p in present_ec2groups:
-    #         if d == p:
-    #             desire_ec2groups.
-    #             break
-
-    # authorize_ec2groups = list(set(desire_ec2groups) - set(present_ec2groups))
-    # revoke_ec2groups = list(set(present_ec2groups) - set(desire_ec2groups))
-
-    # No diffence
     if (len(authorize_ec2groups) == 0) and (len(revoke_ec2groups) == 0):
         return False
 
     # Adjust diffence
     if len(authorize_ec2groups) != 0:
         for i in authorize_ec2groups:
-            print(i)
-            # conn.authorize_db_security_group_ingress(
-            #     DBSecurityGroupName=name,
-            #     CIDRIP=i
-            # )
+            try:
+                conn.authorize_db_security_group_ingress(
+                    DBSecurityGroupName=name,
+                    EC2SecurityGroupName=i['group_name'],
+                    EC2SecurityGroupOwnerId=i['group_owner_id']
+                )
+            except ClientError as ex:
+                module.fail_json(msg=ex.response['Error']['Message'])
 
     if len(revoke_ec2groups) != 0:
         for i in revoke_ec2groups:
-            print(i)
-            # conn.revoke_db_security_group_ingress(
-            #     DBSecurityGroupName=name,
-            #     CIDRIP=i
-            # )
+            try:
+                conn.revoke_db_security_group_ingress(
+                    DBSecurityGroupName=name,
+                    EC2SecurityGroupName=i['group_name'],
+                    EC2SecurityGroupOwnerId=i['group_owner_id']
+                )
+            except ClientError as ex:
+                module.fail_json(msg=ex.response['Error']['Message'])
 
     return True
 
@@ -111,7 +108,7 @@ def sg(module, conn, params):
                     for i in result['DBSecurityGroups'][0]['EC2SecurityGroups']
                     if i['Status'] == "authorized"]
 
-            ec2groups_changed = ec2groups_ingress(conn, params['name'],
+            ec2groups_changed = ec2groups_ingress(module, conn, params['name'],
                                                   present_ec2groups, params['ec2_security_groups'])
 
             return ipranges_changed or ec2groups_changed
@@ -149,7 +146,9 @@ def main():
     )
 
     module = AnsibleModule(argument_spec=argument_spec)
-
+    module.params['ec2_security_groups'] = [{'group_owner_id': str(i['group_owner_id']),
+                                             'group_name': str(i['group_name'])}
+                                            for i in module.params['ec2_security_groups']]
     if not HAS_BOTO3:
         module.fail_json(msg='boto3 required for this module')
     if not HAS_BOTO:
