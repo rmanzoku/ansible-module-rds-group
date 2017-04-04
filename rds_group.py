@@ -110,6 +110,8 @@ def main():
         module.fail_json(msg='boto3 required for this module')
     if not HAS_BOTO:
         module.fail_json(msg='boto required for this module')
+    if not HAS_BOTOCORE:
+        module.fail_json(msg='botocore required for this module')
 
     # Connect to AWS
     try:
