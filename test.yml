@@ -11,13 +11,13 @@
 
     # - pause: seconds=2
 
-    - name: Present
-      rds_group:
-        state: present
-        region: ap-northeast-1
-        profile: "profile steak"
-        name: rmanzoku_group
-        description: test group 1
+    # - name: Present
+    #   rds_group:
+    #     state: present
+    #     region: ap-northeast-1
+    #     profile: "profile steak"
+    #     name: rmanzoku_group
+    #     description: test group 1
 
     # - pause: seconds=2
 
