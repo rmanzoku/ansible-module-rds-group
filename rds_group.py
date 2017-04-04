@@ -154,7 +154,7 @@ def main():
         present_ipranges = []
     else:
         present_ipranges = [i['CIDRIP'] for i in result['DBSecurityGroups'][0]['IPRanges']
-                            if (i['Status'] == "authorized" or i['Status'] == "authorizing")]
+                            if ((i['Status'] == "authorized") or (i['Status'] == "authorizing"))]
 
     changed = ipranges_grants(module, conn, module.params['name'],
                               present_ipranges, module.params['ip_ranges']) or changed
@@ -167,7 +167,7 @@ def main():
             {"group_owner_id": i['EC2SecurityGroupOwnerId'],
              "group_name": i['EC2SecurityGroupName']}
             for i in result['DBSecurityGroups'][0]['EC2SecurityGroups']
-            if (i['Status'] == "authorized" or i['Status'] == "authorizing")]
+            if ((i['Status'] == "authorized") or (i['Status'] == "authorizing"))]
 
     changed = ec2groups_grants(module, conn, module.params['name'],
                                present_ec2groups, module.params['ec2_security_groups']) or changed
